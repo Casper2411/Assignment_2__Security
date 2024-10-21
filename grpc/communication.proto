@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package main;
+
+option go_package = "grpc/proto";
+
+service CommunicationService {
+  // Send message to the server
+  rpc SendMessage (MessageRequest) returns (MessageResponse);
+
+  // Send message from one client to another
+  rpc SendMessageToClient (ClientMessageRequest) returns (MessageResponse);
+}
+
+message MessageRequest {
+  string message = 1;
+}
+
+message MessageResponse {
+  string response = 1;
+}
+
+message ClientMessageRequest {
+  string message = 1;
+  string client_id = 2;
+}
