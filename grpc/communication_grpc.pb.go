@@ -23,7 +23,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CommunicationServiceClient interface {
 	// Send message to the server
-	SendMessage(ctx context.Context, in *MessageRequest, opts ...grpc.CallOption) (*MessageResponse, error)
+	SendMessage(ctx context.Context, in *MessageHospital, opts ...grpc.CallOption) (*MessageResponse, error)
 	// Send message from one client to another
 	SendMessageToClient(ctx context.Context, in *ClientMessageRequest, opts ...grpc.CallOption) (*MessageResponse, error)
 }
@@ -36,7 +36,7 @@ func NewCommunicationServiceClient(cc grpc.ClientConnInterface) CommunicationSer
 	return &communicationServiceClient{cc}
 }
 
-func (c *communicationServiceClient) SendMessage(ctx context.Context, in *MessageRequest, opts ...grpc.CallOption) (*MessageResponse, error) {
+func (c *communicationServiceClient) SendMessage(ctx context.Context, in *MessageHospital, opts ...grpc.CallOption) (*MessageResponse, error) {
 	out := new(MessageResponse)
 	err := c.cc.Invoke(ctx, "/main.CommunicationService/SendMessage", in, out, opts...)
 	if err != nil {
@@ -59,7 +59,7 @@ func (c *communicationServiceClient) SendMessageToClient(ctx context.Context, in
 // for forward compatibility
 type CommunicationServiceServer interface {
 	// Send message to the server
-	SendMessage(context.Context, *MessageRequest) (*MessageResponse, error)
+	SendMessage(context.Context, *MessageHospital) (*MessageResponse, error)
 	// Send message from one client to another
 	SendMessageToClient(context.Context, *ClientMessageRequest) (*MessageResponse, error)
 	mustEmbedUnimplementedCommunicationServiceServer()
@@ -69,7 +69,7 @@ type CommunicationServiceServer interface {
 type UnimplementedCommunicationServiceServer struct {
 }
 
-func (UnimplementedCommunicationServiceServer) SendMessage(context.Context, *MessageRequest) (*MessageResponse, error) {
+func (UnimplementedCommunicationServiceServer) SendMessage(context.Context, *MessageHospital) (*MessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendMessage not implemented")
 }
 func (UnimplementedCommunicationServiceServer) SendMessageToClient(context.Context, *ClientMessageRequest) (*MessageResponse, error) {
@@ -89,7 +89,7 @@ func RegisterCommunicationServiceServer(s grpc.ServiceRegistrar, srv Communicati
 }
 
 func _CommunicationService_SendMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MessageRequest)
+	in := new(MessageHospital)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func _CommunicationService_SendMessage_Handler(srv interface{}, ctx context.Cont
 		FullMethod: "/main.CommunicationService/SendMessage",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CommunicationServiceServer).SendMessage(ctx, req.(*MessageRequest))
+		return srv.(CommunicationServiceServer).SendMessage(ctx, req.(*MessageHospital))
 	}
 	return interceptor(ctx, in, info, handler)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"math/rand"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	// where the proto is located.
 	pb "assignment_2/grpc"
@@ -23,7 +25,7 @@ type Client struct {
 }
 
 var (
-	serverPort       = flag.Int("sPort", 5454, "hospital port number")
+	serverPort       = "localhost:5454" //hospital port number
 	patientAddresses = map[int]string{
 		1: "localhost:5001",
 		2: "localhost:5002",
@@ -57,6 +59,7 @@ func additionOfShares(patient *Client) int {
 /*
 This function distributes the generated shares between the other patients
 */
+
 func handleShares(p *Client) {
 	// First we make sure that the patient keeps its own share
 	p.receiveShares = append(p.receiveShares, p.initialShare[p.id-1])
@@ -65,7 +68,7 @@ func handleShares(p *Client) {
 	// Send shares to other patients
 	for i, address := range patientAddresses {
 		if i != p.id {
-			//sendShareToOtherPatient(address, generatedShares[i], patient.id)
+			p.sendShareToPatient(p.initialShare[i-1], address)
 		}
 	}
 	time.Sleep(10 * time.Second)
@@ -75,26 +78,81 @@ func handleShares(p *Client) {
 		addition := additionOfShares(p)
 		log.Printf("Patient %d has calculated the aggregated value to be: %d\n", p.id, addition)
 		//sendHospitalAggregation("localhost:3000", addition, p.id)
+	} else {
+		log.Printf("Did not have three receivedshares")
 	}
+}
+
+// Function to send the share to another patient
+func (p *Client) sendShareToPatient(share int, otherPatientPort string) {
+
+	connection, err := grpc.Dial(otherPatientPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("Failed to dial server: %v", err)
+	}
+	defer connection.Close()
+
+	client := pb.NewCommunicationServiceClient(connection)
+	ack, err := client.SendMessageToClient(context.Background(), &pb.ClientMessageRequest{Message: int64(share), ClientId: int64(p.id)})
+	if err != nil {
+		log.Fatalf("Failed to send share: %v", err)
+	}
+
+	log.Printf("patient %d sent packet to %s \n", p.id, otherPatientPort)
+	log.Printf("Received confirmation from other patient: '%s'\n", ack.Response)
+}
+
+func (p *Client) SendMessageToClient(ctx context.Context, message *pb.ClientMessageRequest) (*pb.MessageResponse, error) {
+	log.Printf("Received share, that has the value %d\n", message.Message)
+	p.receiveShares = append(p.receiveShares, int(message.Message))
+
+	if len(p.receiveShares) == 3 {
+		addition := additionOfShares(p)
+		log.Printf("Patient %d has calculated the aggregated value to be: %d, and will now sent it to the hospital!\n", p.id, addition)
+		p.SendMessage(context.Background(), &pb.MessageHospital{Message: int64(addition)})
+	}
+
+	return &pb.MessageResponse{Response: "Received Share, and added it to list."}, nil
+}
+
+// This function sends the response to the hospital.
+func (patient *Client) SendMessage(ctx context.Context, mes *pb.MessageHospital) (*pb.MessageResponse, error) {
+	connection, err := grpc.Dial(serverPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("Failed to dial server: %v", err)
+	}
+	defer connection.Close()
+
+	client := pb.NewCommunicationServiceClient(connection)
+	ack, err := client.SendMessage(ctx, mes)
+	if err != nil {
+		log.Fatalf("Client %d failed to send aggregation: %v", patient.id, err)
+	}
+
+	log.Printf("Response from Hospital: %s\n", ack.Response)
+	return ack, nil
 }
 
 func main() {
 
 	// Parse the flags to get the value and id for the patient
-	value := flag.Int("value", -1, "The id and the original value")
-	log.Printf("Patient %d just started, with the value: %d", value, value)
+	patientID := flag.Int("id", -1, "The id")
 	flag.Parse()
 
+	privateValue := rand.Intn(10000) + 1
+
+	log.Printf("Patient %d just started, with the value: %d", *patientID, privateValue)
+
 	//look up in the patientAdresses map
-	thisPort, ok := patientAddresses[*value]
+	thisPort, ok := patientAddresses[*patientID]
 	if !ok {
-		log.Fatalf("Patient ID %d not found in patientAddresses map", value)
+		log.Fatalf("Patient ID %d not found in patientAddresses map", patientID)
 	}
 
 	// Create a client
 	client := &Client{
-		id:            *value,
-		initialValue:  *value,
+		id:            *patientID,
+		initialValue:  *&privateValue,
 		patientPort:   thisPort,
 		initialShare:  []int{},
 		receiveShares: []int{},
@@ -103,11 +161,11 @@ func main() {
 	//Generate own initial shares
 	client.shareGeneration()
 
-	go startClientServer(client)
+	go client.startClientServer()
 
 	time.Sleep(10 * time.Second) //Wait to make sure all servers get started.
 
-	//distirbute sharees with  gerneateShares variable.
+	go handleShares(client)
 
 	//Keep running program
 	for {
@@ -116,13 +174,13 @@ func main() {
 }
 
 // Function to start a gRPC server on the client to listen for messages from other clients
-func startClientServer(client *Client) {
+func (client *Client) startClientServer() {
 	// Create a listener on the client's port
 	listener, err := net.Listen("tcp", client.patientPort)
 	if err != nil {
-		log.Fatalf("Could not listen on port %d: %v", client.patientPort, err)
+		log.Fatalf("Could not listen on port %s: %v", client.patientPort, err)
 	}
-	log.Printf("Patient listening on port: %d\n", client.patientPort)
+	log.Printf("Patient listening on port: %s\n", client.patientPort)
 
 	grpcServer := grpc.NewServer()
 	pb.RegisterCommunicationServiceServer(grpcServer, client)
