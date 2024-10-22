@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"flag"
+	"fmt"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 
@@ -49,33 +52,46 @@ func main() {
 }
 
 func loadTLSCredentials() (credentials.TransportCredentials, error) {
-    // Load server's certificate and private key
-    serverCert, err := tls.LoadX509KeyPair("cert/server-cert.pem", "cert/server-key.pem")
-    if err != nil {
-        return nil, err
-    }
+	//certificate of the CA who signed server's certificate
+	CACert, err := os.ReadFile("cert/ca-cert.pem")
+	if err != nil {
+		return nil, err
+	}
 
-    // Create the credentials and return it
-    config := &tls.Config{
-        Certificates: []tls.Certificate{serverCert},
-        ClientAuth:   tls.NoClientCert,
-    }
+	// Create a certificate pool from the certificate authority
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(CACert) {
+		return nil, fmt.Errorf("failed to add server CA's certificate")
+	}
 
-    return credentials.NewTLS(config), nil
+	// Load server's certificate and private key
+	serverCert, err := tls.LoadX509KeyPair("cert/server-cert.pem", "cert/server-key.pem")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the credentials and return it
+	config := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    certPool,
+	}
+
+	return credentials.NewTLS(config), nil
 }
 
 func startServer(server *Server) {
 
 	//initialise TLS server
 	tlsCredentials, err := loadTLSCredentials()
-    if err != nil {
-        log.Fatal("cannot load TLS credentials: ", err)
-    }
+	if err != nil {
+		log.Fatal("cannot load TLS credentials: ", err)
+	}
 
 	// Create a new grpc server
-    grpcServer := grpc.NewServer(
-        grpc.Creds(tlsCredentials),
-    )
+	grpcServer := grpc.NewServer(
+		grpc.Creds(tlsCredentials),
+	)
 
 	// Make the server listen at the given port (convert int port to string)
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(server.port))

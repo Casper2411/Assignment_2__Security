@@ -6,15 +6,14 @@ import (
 	"crypto/x509"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 
 	// where the proto is located.
 	pb "assignment_2/grpc"
@@ -90,14 +89,13 @@ func handleShares(p *Client) {
 
 // Function to send the share to another patient
 func (p *Client) sendShareToPatient(share int, otherPatientPort string) {
-	/*
-		tlsCredentials, err := loadTLSCredentials()
-		if err != nil {
-			log.Fatal("cannot load TLS credentials: ", err)
-		}
-	*/
 
-	connection, err := grpc.Dial(otherPatientPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	tlsCredentials, err := loadTLSCredentials(p.id)
+	if err != nil {
+		log.Fatal("cannot load TLS credentials: ", err)
+	}
+
+	connection, err := grpc.Dial(otherPatientPort, grpc.WithTransportCredentials(tlsCredentials))
 	if err != nil {
 		log.Fatalf("Failed to dial server: %v", err)
 	}
@@ -128,7 +126,7 @@ func (p *Client) SendMessageToClient(ctx context.Context, message *pb.ClientMess
 
 // This function sends the response to the hospital.
 func (patient *Client) SendMessage(ctx context.Context, mes *pb.MessageHospital) (*pb.MessageResponse, error) {
-	tlsCredentials, err := loadTLSCredentials()
+	tlsCredentials, err := loadTLSCredentials(patient.id)
 	if err != nil {
 		log.Fatal("cannot load TLS credentials: ", err)
 	}
@@ -198,7 +196,12 @@ func (client *Client) startClientServer() {
 	}
 	log.Printf("Patient listening on port: %s\n", client.patientPort)
 
-	grpcServer := grpc.NewServer()
+	tlsCredentials, err := loadTLSCredentials(client.id)
+	if err != nil {
+		log.Fatalf("Failed to load TLS credentials: %v", err)
+	}
+
+	grpcServer := grpc.NewServer(grpc.Creds(tlsCredentials))
 	pb.RegisterCommunicationServiceServer(grpcServer, client)
 
 	// Serve incoming requests from other clients
@@ -207,9 +210,9 @@ func (client *Client) startClientServer() {
 	}
 }
 
-func loadTLSCredentials() (credentials.TransportCredentials, error) {
+func loadTLSCredentials(id int) (credentials.TransportCredentials, error) {
 	// Load certificate of the CA who signed server's certificate
-	pemServerCA, err := ioutil.ReadFile("cert/ca-cert.pem")
+	pemServerCA, err := os.ReadFile("cert/ca-cert.pem")
 	if err != nil {
 		return nil, err
 	}
@@ -219,9 +222,20 @@ func loadTLSCredentials() (credentials.TransportCredentials, error) {
 		return nil, fmt.Errorf("failed to add server CA's certificate")
 	}
 
+	// Load this client's certificate and private key
+	certFile := fmt.Sprintf("cert/client_%d-cert.pem", id)
+	keyFile := fmt.Sprintf("cert/client_%d-key.pem", id)
+	clientCert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("could not load client key pair: %s", err)
+	}
+
 	// Create the credentials and return it
 	config := &tls.Config{
-		RootCAs: certPool,
+		Certificates: []tls.Certificate{clientCert},
+		RootCAs:      certPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    certPool,
 	}
 
 	return credentials.NewTLS(config), nil
