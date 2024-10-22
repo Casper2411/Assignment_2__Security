@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"log"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"sync"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	// where the proto is located.
 	pb "assignment_2/grpc"
@@ -46,10 +48,34 @@ func main() {
 	}
 }
 
+func loadTLSCredentials() (credentials.TransportCredentials, error) {
+    // Load server's certificate and private key
+    serverCert, err := tls.LoadX509KeyPair("cert/server-cert.pem", "cert/server-key.pem")
+    if err != nil {
+        return nil, err
+    }
+
+    // Create the credentials and return it
+    config := &tls.Config{
+        Certificates: []tls.Certificate{serverCert},
+        ClientAuth:   tls.NoClientCert,
+    }
+
+    return credentials.NewTLS(config), nil
+}
+
 func startServer(server *Server) {
 
+	//initialise TLS server
+	tlsCredentials, err := loadTLSCredentials()
+    if err != nil {
+        log.Fatal("cannot load TLS credentials: ", err)
+    }
+
 	// Create a new grpc server
-	grpcServer := grpc.NewServer()
+    grpcServer := grpc.NewServer(
+        grpc.Creds(tlsCredentials),
+    )
 
 	// Make the server listen at the given port (convert int port to string)
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(server.port))
